@@ -1,9 +1,13 @@
-#coding:utf-8
+# coding:utf-8
+"""
+为RNet准备训练数据
+"""
+
 import sys
-#sys.path.append("../")
+# sys.path.append("../")
 from prepare_data.utils import convert_to_square
 
-sys.path.insert(0,'..')
+sys.path.insert(0, '..')
 import numpy as np
 import argparse
 import os
@@ -15,11 +19,13 @@ from prepare_data.loader import TestLoader
 from Detection.detector import Detector
 from Detection.fcn_detector import FcnDetector
 from Detection.MtcnnDetector import MtcnnDetector
-from utils import *
+from prepare_data.utils import *
 from prepare_data.data_utils import *
-#net : 24(RNet)/48(ONet)
-#data: dict()
-def save_hard_example(net, data,save_path):
+
+
+# net : 24(RNet)/48(ONet)
+# data: dict()
+def save_hard_example(net, data, save_path):
     # load ground truth from annotation file
     # format of each line: image/path [x1,y1,x2,y2] for each gt_box in this image
 
@@ -30,7 +36,6 @@ def save_hard_example(net, data,save_path):
 
     print("processing %d images in total" % num_of_images)
 
-    
     # save files
     neg_label_file = "../../DATA/no_LM%d/neg_%d.txt" % (net, image_size)
     neg_file = open(neg_label_file, 'w')
@@ -40,7 +45,7 @@ def save_hard_example(net, data,save_path):
 
     part_label_file = "../../DATA/no_LM%d/part_%d.txt" % (net, image_size)
     part_file = open(part_label_file, 'w')
-    #read detect result
+    # read detect result
     det_boxes = pickle.load(open(os.path.join(save_path, 'detections.pkl'), 'rb'))
     # print(len(det_boxes), num_of_images)
     print(len(det_boxes))
@@ -52,9 +57,9 @@ def save_hard_example(net, data,save_path):
     p_idx = 0
     d_idx = 0
     image_done = 0
-    #im_idx_list image index(list)
-    #det_boxes detect result(list)
-    #gt_boxes_list gt(list)
+    # im_idx_list image index(list)
+    # det_boxes detect result(list)
+    # gt_boxes_list gt(list)
     for im_idx, dets, gts in zip(im_idx_list, det_boxes, gt_boxes_list):
         gts = np.array(gts, dtype=np.float32).reshape(-1, 4)
         if image_done % 100 == 0:
@@ -64,7 +69,7 @@ def save_hard_example(net, data,save_path):
         if dets.shape[0] == 0:
             continue
         img = cv2.imread(im_idx)
-        #change to square
+        # change to square
         dets = convert_to_square(dets)
         dets[:, 0:4] = np.round(dets[:, 0:4])
         neg_num = 0
@@ -86,7 +91,7 @@ def save_hard_example(net, data,save_path):
             # save negative images and write label
             # Iou with all gts must below 0.3            
             if np.max(Iou) < 0.3 and neg_num < 60:
-                #save the examples
+                # save the examples
                 save_file = get_path(neg_dir, "%s.jpg" % n_idx)
                 # print(save_file)
                 neg_file.write(save_file + ' 0\n')
@@ -125,14 +130,29 @@ def save_hard_example(net, data,save_path):
 
 
 def t_net(prefix, epoch,
-             batch_size, test_mode="PNet",
-             thresh=[0.6, 0.6, 0.7], min_face_size=25,
-             stride=2, slide_window=False, shuffle=False, vis=False):
+          batch_size, test_mode="PNet",
+          thresh=(0.6, 0.6, 0.7), min_face_size=25,
+          stride=2, slide_window=False, shuffle=False, vis=False):
+    """
+    :param prefix:
+    :param epoch:
+    :param batch_size:
+    :param test_mode:
+    :param thresh:
+    :param min_face_size:
+    :param stride:
+    :param slide_window:
+    :param shuffle:
+    :param vis:
+    :return:
+    """
     detectors = [None, None, None]
     print("Test model: ", test_mode)
-    #PNet-echo
-    model_path = ['%s-%s' % (x, y) for x, y in zip(prefix, epoch)]
-    print(model_path[0])
+    # PNet-echo
+    model_path = []
+    for x, y in zip(prefix, epoch):
+        model_path.append(os.path.join(x, test_mode.lower()+'.ckpt-%s'%y))
+    # model_path = ['%s/pnet.ckpt-%s' % (x, y) for x, y in zip(prefix, epoch)]
     # load pnet model
     if slide_window:
         PNet = Detector(P_Net, 12, batch_size[0], model_path[0])
@@ -151,40 +171,39 @@ def t_net(prefix, epoch,
         print("==================================", test_mode)
         ONet = Detector(O_Net, 48, batch_size[2], model_path[2])
         detectors[2] = ONet
-        
+
     basedir = '../../DATA/'
-    #anno_file
+    # anno_file
     filename = './wider_face_train_bbx_gt.txt'
-    #read anotation(type:dict), include 'images' and 'bboxes'
-    data = read_annotation(basedir,filename)
+    # read anotation(type:dict), include 'images' and 'bboxes'
+    data = read_annotation(basedir, filename)  # 12880张图片
     mtcnn_detector = MtcnnDetector(detectors=detectors, min_face_size=min_face_size,
                                    stride=stride, threshold=thresh, slide_window=slide_window)
-    print("==================================")
     # 注意是在“test”模式下
     # imdb = IMDB("wider", image_set, root_path, dataset_path, 'test')
     # gt_imdb = imdb.gt_imdb()
     print('load test data')
     test_data = TestLoader(data['images'])
-    print ('finish loading')
-    #list
-    print ('start detecting....')
-    detections,_ = mtcnn_detector.detect_face(test_data)
-    print ('finish detecting ')
+    print('finish loading')
+    # list
+    print('start detecting....')
+    detections, _ = mtcnn_detector.detect_face(test_data)
+    print('finish detecting ')
     save_net = 'RNet'
     if test_mode == "PNet":
         save_net = "RNet"
     elif test_mode == "RNet":
         save_net = "ONet"
-    #save detect result
+    # save detect result
     save_path = os.path.join(data_dir, save_net)
-    print ('save_path is :')
+    print('save_path is :')
     print(save_path)
     if not os.path.exists(save_path):
         os.mkdir(save_path)
 
     save_file = os.path.join(save_path, "detections.pkl")
     with open(save_file, 'wb') as f:
-        pickle.dump(detections, f,1)
+        pickle.dump(detections, f, 1)
     print("%s测试完成开始OHEM" % image_size)
     save_hard_example(image_size, data, save_path)
 
@@ -193,12 +212,19 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Test mtcnn',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--test_mode', dest='test_mode', help='test net type, can be pnet, rnet or onet',
-                        default='RNet', type=str)
+                        default='PNet', type=str)
+    # parser.add_argument('--prefix', dest='prefix', help='prefix of model name', nargs="+",
+    #                     default=['../ckpt/MTCNN_model/PNet_No_Landmark/PNet',
+    #                              '../ckpt/MTCNN_model/RNet_No_Landmark/RNet',
+    #                              '../ckpt/MTCNN_model/ONet_No_Landmark/ONet'],
+    #                     type=str)
     parser.add_argument('--prefix', dest='prefix', help='prefix of model name', nargs="+",
-                        default=['../data/MTCNN_model/PNet_No_Landmark/PNet', '../data/MTCNN_model/RNet_No_Landmark/RNet', '../data/MTCNN_model/ONet_No_Landmark/ONet'],
+                        default=['../ckpt/MTCNN_model/PNet',
+                                 '../ckpt/MTCNN_model/RNet',
+                                 '../ckpt/MTCNN_model/ONet'],
                         type=str)
     parser.add_argument('--epoch', dest='epoch', help='epoch number of model to load', nargs="+",
-                        default=[18, 14, 16], type=int)
+                        default=[159000, 161000, 163000], type=int)
     parser.add_argument('--batch_size', dest='batch_size', help='list of batch size used in prediction', nargs="+",
                         default=[2048, 256, 16], type=int)
     parser.add_argument('--thresh', dest='thresh', help='list of thresh for pnet, rnet, onet', nargs="+",
@@ -208,7 +234,7 @@ def parse_args():
     parser.add_argument('--stride', dest='stride', help='stride of sliding window',
                         default=2, type=int)
     parser.add_argument('--sw', dest='slide_window', help='use sliding window in pnet', action='store_true')
-    #parser.add_argument('--gpu', dest='gpu_id', help='GPU device to train with',default=0, type=int)
+    # parser.add_argument('--gpu', dest='gpu_id', help='GPU device to train with',default=0, type=int)
     parser.add_argument('--shuffle', dest='shuffle', help='shuffle data on visualization', action='store_true')
     parser.add_argument('--vis', dest='vis', help='turn on visualization', action='store_true')
     args = parser.parse_args()
@@ -226,11 +252,11 @@ if __name__ == '__main__':
 
     base_dir = '../../DATA/WIDER_train'
     data_dir = '../../DATA/no_LM%s' % str(image_size)
-    
+
     neg_dir = get_path(data_dir, 'negative')
     pos_dir = get_path(data_dir, 'positive')
     part_dir = get_path(data_dir, 'part')
-    #create dictionary shuffle   
+    # create dictionary shuffle
     for dir_path in [neg_dir, pos_dir, part_dir]:
         if not os.path.exists(dir_path):
             os.makedirs(dir_path)
@@ -239,13 +265,13 @@ if __name__ == '__main__':
 
     print('Called with argument:')
     print(args)
-    t_net(args.prefix,#model param's file
-          args.epoch, #final epoches
-          args.batch_size, #test batch_size 
-          args.test_mode,#test which model
-          args.thresh, #cls threshold
-          args.min_face, #min_face
-          args.stride,#stride
-          args.slide_window, 
-          args.shuffle, 
+    t_net(args.prefix,  # model param's file
+          args.epoch,  # final epoches
+          args.batch_size,  # test batch_size
+          args.test_mode,  # test which model
+          args.thresh,  # cls threshold
+          args.min_face,  # min_face
+          args.stride,  # stride
+          args.slide_window,
+          args.shuffle,
           vis=False)
